@@ -44,9 +44,8 @@ const (
 	// ZipkinTraceEndpoint port-forwarded zipkin endpoint
 	ZipkinTraceEndpoint = "http://localhost:9411/api/v2/trace/"
 
-	// App is the name of this component.
-	// This will be used as a label selector.
-	app = "zipkin"
+	// Zipkin service name
+	service = "zipkin"
 
 	// istioNS is the namespace we are using for istio components.
 	istioNS = "istio-system"
@@ -76,13 +75,7 @@ func SetupZipkinTracing(kubeClientset *kubernetes.Clientset, logf logging.Format
 			return
 		}
 
-		zipkinPods, err := monitoring.GetPods(kubeClientset, app, istioNS)
-		if err != nil {
-			logf("Error retrieving Zipkin pod details: %v", err)
-			return
-		}
-
-		zipkinPortForwardPID, err = monitoring.PortForward(logf, zipkinPods, ZipkinPort, ZipkinPort, istioNS)
+		zipkinPortForwardPID, err := monitoring.PortForwardSvc(logf, service, ZipkinPort, ZipkinPort, istioNS)
 		if err != nil {
 			logf("Error starting kubectl port-forward command: %v", err)
 			return
