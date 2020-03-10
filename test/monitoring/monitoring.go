@@ -72,6 +72,19 @@ func PortForward(logf logging.FormatLogger, podList *v1.PodList, localPort, remo
 	return portFwdProcess.Pid, nil
 }
 
+// PortForwardSvc sets up local port forward to the specified service in the given namespace
+func PortForwardSvc(logf logging.FormatLogger, serviceName string, localPort, remotePort int, namespace string) (int, error) {
+	portFwdCmd := fmt.Sprintf("kubectl port-forward svc/%s %d:%d -n %s", serviceName, localPort, remotePort, namespace)
+	portFwdProcess, err := executeCmdBackground(logf, portFwdCmd)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to port forward: %v", err)
+	}
+
+	logf("running %s port-forward in background, pid = %d", serviceName, portFwdProcess.Pid)
+	return portFwdProcess.Pid, nil
+}
+
 // RunBackground starts a background process and returns the Process if succeed
 func executeCmdBackground(logf logging.FormatLogger, format string, args ...interface{}) (*os.Process, error) {
 	cmd := fmt.Sprintf(format, args...)
