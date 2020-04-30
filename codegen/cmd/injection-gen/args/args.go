@@ -29,6 +29,7 @@ type CustomArgs struct {
 	ExternalVersionsInformersPackage string
 	ListersPackage                   string
 	ForceKinds                       string
+	SkipClientInjection              bool
 }
 
 // NewDefaults returns default arguments for the generator.
@@ -45,6 +46,7 @@ func (ca *CustomArgs) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&ca.ExternalVersionsInformersPackage, "external-versions-informers-package", ca.ExternalVersionsInformersPackage, "the full package name for the external versions injection informer to use")
 	fs.StringVar(&ca.ListersPackage, "listers-package", ca.ListersPackage, "the full package name for client listers to use")
 	fs.StringVar(&ca.ForceKinds, "force-genreconciler-kinds", ca.ForceKinds, `force kinds will override the genreconciler tag setting for the given set of kinds, comma separated: "Foo,Bar,Baz"`)
+	fs.BoolVar(&ca.SkipClientInjection, "skip-client-injection", ca.SkipClientInjection, `skip client injection will skip generating client and informer injection packages`)
 }
 
 // Validate checks the given arguments.

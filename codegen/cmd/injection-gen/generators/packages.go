@@ -233,15 +233,29 @@ func versionClientsPackages(basePackage string, boilerplate []byte, customArgs *
 		PackagePath: packagePath,
 		HeaderText:  boilerplate,
 		GeneratorFunc: func(c *generator.Context) (generators []generator.Generator) {
+			if customArgs.SkipClientInjection {
+				return
+			}
 			// Impl
-			generators = append(generators, &clientGenerator{
-				DefaultGen: generator.DefaultGen{
-					OptionalName: "client",
+			generators = append(generators,
+				&clientGenerator{
+					DefaultGen: generator.DefaultGen{
+						OptionalName: "client",
+					},
+					outputPackage:    packagePath,
+					imports:          generator.NewImportTracker(),
+					clientSetPackage: customArgs.VersionedClientSetPackage,
 				},
-				outputPackage:    packagePath,
-				imports:          generator.NewImportTracker(),
-				clientSetPackage: customArgs.VersionedClientSetPackage,
-			})
+				&wiresetGenerator{
+					DefaultGen: generator.DefaultGen{
+						OptionalName: "wireset",
+					},
+					outputPackage:                packagePath,
+					imports:                      generator.NewImportTracker(),
+					clientSetPackage:             customArgs.VersionedClientSetPackage,
+					sharedInformerFactoryPackage: customArgs.ExternalVersionsInformersPackage,
+				},
+			)
 
 			return generators
 		},
