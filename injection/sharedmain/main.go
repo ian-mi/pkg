@@ -108,13 +108,7 @@ func GetLoggingConfig(ctx context.Context) (*logging.Config, error) {
 
 // GetLeaderElectionConfig gets the leader election config.
 func GetLeaderElectionConfig(ctx context.Context) (*kle.Config, error) {
-	leaderElectionConfigMap, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(kle.ConfigMapName(), metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return kle.NewConfigFromConfigMap(nil)
-	} else if err != nil {
-		return nil, err
-	}
-	return kle.NewConfigFromConfigMap(leaderElectionConfigMap)
+	return getLeaderElectionConfig(kubeclient.Get(ctx))
 }
 
 // Main runs the generic main flow for non-webhook controllers with a new
@@ -137,8 +131,6 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 	log.Printf("Registering %d informer factories", len(injection.Default.GetInformerFactories()))
 	log.Printf("Registering %d informers", len(injection.Default.GetInformers()))
 	log.Printf("Registering %d controllers", len(ctors))
-
-	MemStatsOrDie(ctx)
 
 	// Adjust our client's rate limits based on the number of controllers we are running.
 	cfg.QPS = float32(len(ctors)) * rest.DefaultQPS
@@ -164,41 +156,21 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 			logger.Errorw("Error while running server", zap.Error(err))
 		}
 	}()
-	CheckK8sClientMinimumVersionOrDie(ctx, logger)
+	cmw := SetupConfigMapWatchOrDie(ctx, logger)
+	controllers, _ := ControllersAndWebhooksFromCtors(ctx, cmw, ctors...)
+	WatchLoggingConfigOrDie(ctx, cmw, logger, atomicLevel, component)
+	WatchObservabilityConfigOrDie(ctx, cmw, profilingHandler, logger, component)
 
-	run := func(ctx context.Context) {
-		cmw := SetupConfigMapWatchOrDie(ctx, logger)
-		controllers, _ := ControllersAndWebhooksFromCtors(ctx, cmw, ctors...)
-		WatchLoggingConfigOrDie(ctx, cmw, logger, atomicLevel, component)
-		WatchObservabilityConfigOrDie(ctx, cmw, profilingHandler, logger, component)
-
-		logger.Info("Starting configuration manager...")
-		if err := cmw.Start(ctx.Done()); err != nil {
-			logger.Fatalw("Failed to start configuration manager", zap.Error(err))
-		}
-		logger.Info("Starting informers...")
-		if err := controller.StartInformers(ctx.Done(), informers...); err != nil {
-			logger.Fatalw("Failed to start informers", zap.Error(err))
-		}
-		logger.Info("Starting controllers...")
-		go controller.StartAll(ctx, controllers...)
-
-		<-ctx.Done()
+	c := Controller{
+		component:   component,
+		informers:   informers,
+		controllers: controllers,
+		kubeclient:  kubeclient.Get(ctx),
+		cmw:         cmw,
+		logger:      logger,
 	}
 
-	// Set up leader election config
-	leaderElectionConfig, err := GetLeaderElectionConfig(ctx)
-	if err != nil {
-		logger.Fatalf("Error loading leader election configuration: %v", err)
-	}
-	leConfig := leaderElectionConfig.GetComponentConfig(component)
-
-	if !leConfig.LeaderElect {
-		logger.Infof("%v will not run in leader-elected mode", component)
-		run(ctx)
-	} else {
-		RunLeaderElected(ctx, logger, run, leConfig)
-	}
+	c.Start(ctx)
 }
 
 // WebhookMainWithContext runs the generic main flow for controllers and
