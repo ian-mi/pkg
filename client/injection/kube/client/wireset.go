@@ -26,6 +26,7 @@ import (
 	kubernetes "k8s.io/client-go/kubernetes"
 	controller "knative.dev/pkg/controller"
 	injection "knative.dev/pkg/injection"
+	injectionwire "knative.dev/pkg/injection/wire"
 )
 
 var (
@@ -36,10 +37,12 @@ var (
 	)
 )
 
-func NewInformerFactory(ctx context.Context, c *kubernetes.Clientset) informers.SharedInformerFactory {
+func NewInformerFactory(ctx context.Context, c *kubernetes.Clientset, fs *injectionwire.InformerFactories) informers.SharedInformerFactory {
 	opts := make([]informers.SharedInformerOption, 0, 1)
 	if injection.HasNamespaceScope(ctx) {
 		opts = append(opts, informers.WithNamespace(injection.GetNamespaceScope(ctx)))
 	}
-	return informers.NewSharedInformerFactoryWithOptions(c, controller.GetResyncPeriod(ctx), opts...)
+	f := informers.NewSharedInformerFactoryWithOptions(c, controller.GetResyncPeriod(ctx), opts...)
+	fs.AddFactory(f)
+	return f
 }

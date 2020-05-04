@@ -64,7 +64,8 @@ func (g *wiresetGenerator) Init(c *generator.Context, w io.Writer) error {
 	sw := generator.NewSnippetWriter(w, c, "{{", "}}")
 
 	m := map[string]interface{}{
-		"clientSet": c.Universe.Type(types.Name{Package: g.clientSetPackage, Name: "Clientset"}),
+		"informerFactories": c.Universe.Type(types.Name{Package: "knative.dev/pkg/injection/wire", Name: "InformerFactories"}),
+		"clientSet":         c.Universe.Type(types.Name{Package: g.clientSetPackage, Name: "Clientset"}),
 		"informersNewSharedInformerFactoryWithOptions": c.Universe.Function(types.Name{Package: g.sharedInformerFactoryPackage, Name: "NewSharedInformerFactoryWithOptions"}),
 		"informersSharedInformerOption":                c.Universe.Function(types.Name{Package: g.sharedInformerFactoryPackage, Name: "SharedInformerOption"}),
 		"informersWithNamespace":                       c.Universe.Function(types.Name{Package: g.sharedInformerFactoryPackage, Name: "WithNamespace"}),
@@ -83,11 +84,13 @@ func (g *wiresetGenerator) Init(c *generator.Context, w io.Writer) error {
 }
 
 const provideFactoryTemplate = `
-func NewInformerFactory(ctx {{.contextContext|raw}}, c *{{.clientSet|raw}}) {{.informersSharedInformerFactory|raw}} {
+func NewInformerFactory(ctx {{.contextContext|raw}}, c *{{.clientSet|raw}}, fs *{{.informerFactories|raw}}) {{.informersSharedInformerFactory|raw}} {
 	opts := make([]{{.informersSharedInformerOption|raw}}, 0, 1)
 	if {{.injectionHasNamespace|raw}}(ctx) {
 		opts = append(opts, {{.informersWithNamespace|raw}}({{.injectionGetNamespace|raw}}(ctx)))
 	}
-	return {{.informersNewSharedInformerFactoryWithOptions|raw}}(c, {{.controllerGetResyncPeriod|raw}}(ctx), opts...)
+	f := {{.informersNewSharedInformerFactoryWithOptions|raw}}(c, {{.controllerGetResyncPeriod|raw}}(ctx), opts...)
+        fs.AddFactory(f)
+        return f
 }
 `

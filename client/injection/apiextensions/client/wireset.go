@@ -26,6 +26,7 @@ import (
 	externalversions "k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
 	controller "knative.dev/pkg/controller"
 	injection "knative.dev/pkg/injection"
+	injectionwire "knative.dev/pkg/injection/wire"
 )
 
 var (
@@ -36,10 +37,12 @@ var (
 	)
 )
 
-func NewInformerFactory(ctx context.Context, c *clientset.Clientset) externalversions.SharedInformerFactory {
+func NewInformerFactory(ctx context.Context, c *clientset.Clientset, fs *injectionwire.InformerFactories) externalversions.SharedInformerFactory {
 	opts := make([]externalversions.SharedInformerOption, 0, 1)
 	if injection.HasNamespaceScope(ctx) {
 		opts = append(opts, externalversions.WithNamespace(injection.GetNamespaceScope(ctx)))
 	}
-	return externalversions.NewSharedInformerFactoryWithOptions(c, controller.GetResyncPeriod(ctx), opts...)
+	f := externalversions.NewSharedInformerFactoryWithOptions(c, controller.GetResyncPeriod(ctx), opts...)
+	fs.AddFactory(f)
+	return f
 }
