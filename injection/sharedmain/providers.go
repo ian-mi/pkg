@@ -2,12 +2,15 @@ package sharedmain
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/wire"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"knative.dev/pkg/configmap"
@@ -22,6 +25,7 @@ var ProviderSet = wire.NewSet(
 	NewWatchedLogger,
 	NewLogger,
 	wire.Value([]zap.Option(nil)),
+	NewLoggingConfig,
 	NewRestCfg,
 	NewConfigMapWatch,
 )
@@ -53,6 +57,25 @@ func NewLogger(config *logging.Config, component ComponentName) unwatchedLogger 
 		logger:      logger,
 		atomicLevel: atomicLevel,
 	}
+}
+
+// NewLoggingConfig gets the logging config from either the file system if present
+// or via reading a configMap from the API.
+func NewLoggingConfig(kc kubernetes.Interface) (*logging.Config, error) {
+	var loggingConfigMap *corev1.ConfigMap
+	// These timeout and retry interval are set by heuristics.
+	// e.g. istio sidecar needs a few seconds to configure the pod network.
+	if err := wait.PollImmediate(1*time.Second, 5*time.Second, func() (bool, error) {
+		var err error
+		loggingConfigMap, err = kc.CoreV1().ConfigMaps(system.Namespace()).Get(logging.ConfigMapName(), metav1.GetOptions{})
+		return err == nil || apierrors.IsNotFound(err), nil
+	}); err != nil {
+		return nil, err
+	}
+	if loggingConfigMap == nil {
+		return logging.NewConfigFromMap(nil)
+	}
+	return logging.NewConfigFromConfigMap(loggingConfigMap)
 }
 
 type RestArgs struct {
