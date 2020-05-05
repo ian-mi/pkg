@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"knative.dev/pkg/client/injection/kube/client"
 	"knative.dev/pkg/configmap"
 	pkgwire "knative.dev/pkg/injection/wire"
 	"knative.dev/pkg/logging"
@@ -28,6 +29,7 @@ var ProviderSet = wire.NewSet(
 	NewLoggingConfig,
 	NewRestCfg,
 	NewConfigMapWatch,
+	client.ClientSet,
 )
 
 // WatchedLogger is a logger setup to update from a logging configmap.
