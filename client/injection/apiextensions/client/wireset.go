@@ -33,6 +33,7 @@ var (
 	// Package-wide variables from generator "wireset".
 	ClientSet = wire.NewSet(
 		clientset.NewForConfig,
+		wire.Bind(new(clientset.Interface), new(*clientset.Clientset)),
 		NewInformerFactory,
 	)
 )

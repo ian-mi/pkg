@@ -50,11 +50,15 @@ func (g *wiresetGenerator) Imports(c *generator.Context) []string {
 func (g *wiresetGenerator) PackageVars(c *generator.Context) []string {
 	namer := c.Namers["raw"]
 	wireNewSet := c.Universe.Package("github.com/google/wire").Function("NewSet")
+	wireBind := c.Universe.Package("github.com/google/wire").Function("Bind")
 	newForConfig := c.Universe.Package(g.clientSetPackage).Function("NewForConfig")
+	clientSet := c.Universe.Type(types.Name{Package: g.clientSetPackage, Name: "Clientset"})
+	clientSetInterface := c.Universe.Type(types.Name{Package: g.clientSetPackage, Name: "Interface"})
 	g.Namers(c)
 	return []string{
 		fmt.Sprintf("ClientSet = %s(", namer.Name(wireNewSet)),
 		fmt.Sprintf("%s,", namer.Name(newForConfig)),
+		fmt.Sprintf("%s(new(%s), new(*%s)),", namer.Name(wireBind), namer.Name(clientSetInterface), namer.Name(clientSet)),
 		"NewInformerFactory,",
 		")",
 	}

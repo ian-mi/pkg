@@ -33,6 +33,7 @@ var (
 	// Package-wide variables from generator "wireset".
 	ClientSet = wire.NewSet(
 		kubernetes.NewForConfig,
+		wire.Bind(new(kubernetes.Interface), new(*kubernetes.Clientset)),
 		NewInformerFactory,
 	)
 )
