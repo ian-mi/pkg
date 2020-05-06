@@ -43,7 +43,7 @@ func NewWatchedLogger(
 	component ComponentName,
 	uwl unwatchedLogger,
 	kc kubernetes.Interface,
-	cmw *configmap.InformedWatcher,
+	cmw configmap.Watcher,
 ) *zap.SugaredLogger {
 	if _, err := kc.CoreV1().ConfigMaps(system.Namespace()).Get(logging.ConfigMapName(),
 		metav1.GetOptions{}); err == nil {

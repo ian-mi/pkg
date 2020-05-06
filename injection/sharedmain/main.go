@@ -314,12 +314,11 @@ func SetupConfigMapWatchOrDie(ctx context.Context, logger *zap.SugaredLogger) *c
 // calling log.Fatalf. Note, if the config does not exist, it will be defaulted
 // and this method will not die.
 func WatchLoggingConfigOrDie(ctx context.Context, cmw *configmap.InformedWatcher, logger *zap.SugaredLogger, atomicLevel zap.AtomicLevel, component string) {
-	if _, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(logging.ConfigMapName(),
-		metav1.GetOptions{}); err == nil {
-		cmw.Watch(logging.ConfigMapName(), logging.UpdateLevelFromConfigMap(logger, atomicLevel, component))
-	} else if !apierrors.IsNotFound(err) {
-		logger.With(zap.Error(err)).Fatalf("Error reading ConfigMap %q", logging.ConfigMapName())
-	}
+	NewWatchedLogger(
+		ComponentName(component),
+		unwatchedLogger{logger: logger, atomicLevel: atomicLevel},
+		kubeclient.Get(ctx), cmw,
+	)
 }
 
 // WatchObservabilityConfigOrDie establishes a watch of the logging config or
