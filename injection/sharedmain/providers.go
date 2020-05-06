@@ -29,6 +29,7 @@ var ProviderSet = wire.NewSet(
 	NewLoggingConfig,
 	NewRestCfg,
 	NewConfigMapWatch,
+	wire.Bind(new(configmap.Watcher), new(*configmap.InformedWatcher)),
 	client.ClientSet,
 )
 

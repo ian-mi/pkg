@@ -44,7 +44,7 @@ type Controller struct {
 	informers   []controller.Informer
 	controllers []*controller.Impl
 	kubeclient  kubernetes.Interface
-	cmw         *configmap.InformedWatcher
+	cmw         configmap.Watcher
 	logger      *zap.SugaredLogger
 }
 
@@ -53,7 +53,7 @@ func NewController(
 	factories *wire.InformerFactories,
 	controllers []*controller.Impl,
 	kubeclient kubernetes.Interface,
-	cmw *configmap.InformedWatcher,
+	cmw configmap.Watcher,
 	logger *zap.SugaredLogger,
 ) *Controller {
 	return &Controller{
