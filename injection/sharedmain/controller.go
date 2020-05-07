@@ -39,13 +39,14 @@ import (
 type ComponentName string
 
 type Controller struct {
-	component   string
-	factories   *wire.InformerFactories
-	informers   []controller.Informer
-	controllers []*controller.Impl
-	kubeclient  kubernetes.Interface
-	cmw         configmap.Watcher
-	logger      *zap.SugaredLogger
+	component            string
+	factories            *wire.InformerFactories
+	informers            []controller.Informer
+	controllers          []*controller.Impl
+	kubeclient           kubernetes.Interface
+	cmw                  configmap.Watcher
+	observabilityHandler *ObservabilityHandler
+	logger               *zap.SugaredLogger
 }
 
 func NewController(
@@ -54,15 +55,17 @@ func NewController(
 	controllers []*controller.Impl,
 	kubeclient kubernetes.Interface,
 	cmw configmap.Watcher,
+	observabilityHandler *ObservabilityHandler,
 	logger *zap.SugaredLogger,
 ) *Controller {
 	return &Controller{
-		component:   string(component),
-		factories:   factories,
-		controllers: controllers,
-		kubeclient:  kubeclient,
-		cmw:         cmw,
-		logger:      logger,
+		component:            string(component),
+		factories:            factories,
+		controllers:          controllers,
+		kubeclient:           kubeclient,
+		cmw:                  cmw,
+		observabilityHandler: observabilityHandler,
+		logger:               logger,
 	}
 }
 
@@ -72,26 +75,16 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	MemStatsOrDie(ctx)
 
-	profilingHandler := profiling.NewHandler(c.logger, false)
-	profilingServer := profiling.NewServer(profilingHandler)
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.Go(profilingServer.ListenAndServe)
-	go func() {
-		// This will block until either a signal arrives or one of the grouped functions
-		// returns an error.
-		<-egCtx.Done()
-
-		profilingServer.Shutdown(context.Background())
-		if err := eg.Wait(); err != nil && err != http.ErrServerClosed {
-			c.logger.Errorw("Error while running server", zap.Error(err))
-		}
-	}()
 	checkK8sClientMinimumVersionOrDie(c.kubeclient, c.logger)
+
+	if err := c.observabilityHandler.Start(ctx); err != nil {
+		return err
+	}
 
 	// Set up leader election config
 	leaderElectionConfig, err := getLeaderElectionConfig(c.kubeclient)
 	if err != nil {
-		return fmt.Errorf("Error loading leader election configuration: %w", err)
+		return fmt.Errorf("error loading leader election configuration: %w", err)
 	}
 	leConfig := leaderElectionConfig.GetComponentConfig(c.component)
 
@@ -139,4 +132,52 @@ func getLeaderElectionConfig(kc kubernetes.Interface) (*kle.Config, error) {
 		return nil, err
 	}
 	return kle.NewConfigFromConfigMap(leaderElectionConfigMap)
+}
+
+// ObservabilityHandler starts a profiling server and watches an observability configmap for
+// profiling config changes.
+type ObservabilityHandler struct {
+	component  ComponentName
+	kubeclient kubernetes.Interface
+	cmw        configmap.Watcher
+	logger     *zap.SugaredLogger
+}
+
+func NewObservabilityHandler(
+	component ComponentName,
+	kubeclient kubernetes.Interface,
+	cmw configmap.Watcher,
+	logger *zap.SugaredLogger,
+) *ObservabilityHandler {
+	return &ObservabilityHandler{
+		component:  component,
+		kubeclient: kubeclient,
+		cmw:        cmw,
+		logger:     logger,
+	}
+}
+
+// Start starts a profiling server which will run until ctx is cancelled or an unrecoverable error
+// occurs.
+func (w *ObservabilityHandler) Start(ctx context.Context) error {
+	profilingHandler := profiling.NewHandler(w.logger, false)
+	profilingServer := profiling.NewServer(profilingHandler)
+
+	if err := watchObservabilityConfig(w.kubeclient, w.cmw, profilingHandler, w.logger, string(w.component)); err != nil {
+		return fmt.Errorf("error watching observability configmap: %w", err)
+	}
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.Go(profilingServer.ListenAndServe)
+	go func() {
+		// This will block until either a signal arrives or one of the grouped functions
+		// returns an error.
+		<-egCtx.Done()
+
+		profilingServer.Shutdown(context.Background())
+		if err := eg.Wait(); err != nil && err != http.ErrServerClosed {
+			w.logger.Errorw("Error while running server", zap.Error(err))
+		}
+	}()
+	return nil
 }

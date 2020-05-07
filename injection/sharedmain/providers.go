@@ -27,6 +27,7 @@ var ProviderSet = wire.NewSet(
 	NewLogger,
 	wire.Value([]zap.Option(nil)),
 	NewLoggingConfig,
+	NewObservabilityHandler,
 	NewRestCfg,
 	NewConfigMapWatch,
 	wire.Bind(new(configmap.Watcher), new(*configmap.InformedWatcher)),

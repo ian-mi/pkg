@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
@@ -128,24 +129,9 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 	logger, atomicLevel := SetupLoggerOrDie(ctx, component)
 	defer flush(logger)
 	ctx = logging.WithLogger(ctx, logger)
-	profilingHandler := profiling.NewHandler(logger, false)
-	profilingServer := profiling.NewServer(profilingHandler)
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.Go(profilingServer.ListenAndServe)
-	go func() {
-		// This will block until either a signal arrives or one of the grouped functions
-		// returns an error.
-		<-egCtx.Done()
-
-		profilingServer.Shutdown(context.Background())
-		if err := eg.Wait(); err != nil && err != http.ErrServerClosed {
-			logger.Errorw("Error while running server", zap.Error(err))
-		}
-	}()
 	cmw := SetupConfigMapWatchOrDie(ctx, logger)
 	controllers, _ := ControllersAndWebhooksFromCtors(ctx, cmw, ctors...)
 	WatchLoggingConfigOrDie(ctx, cmw, logger, atomicLevel, component)
-	WatchObservabilityConfigOrDie(ctx, cmw, profilingHandler, logger, component)
 
 	c := Controller{
 		component:   component,
@@ -153,10 +139,16 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 		controllers: controllers,
 		kubeclient:  kubeclient.Get(ctx),
 		cmw:         cmw,
-		logger:      logger,
+		observabilityHandler: NewObservabilityHandler(
+			ComponentName(component),
+			kubeclient.Get(ctx),
+			cmw,
+			logger,
+		),
+		logger: logger,
 	}
 
-	c.Start(ctx)
+	logger.Fatal(c.Start(ctx))
 }
 
 // WebhookMainWithContext runs the generic main flow for controllers and
@@ -325,14 +317,24 @@ func WatchLoggingConfigOrDie(ctx context.Context, cmw *configmap.InformedWatcher
 // dies by calling log.Fatalf. Note, if the config does not exist, it will be
 // defaulted and this method will not die.
 func WatchObservabilityConfigOrDie(ctx context.Context, cmw *configmap.InformedWatcher, profilingHandler *profiling.Handler, logger *zap.SugaredLogger, component string) {
-	if _, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(metrics.ConfigMapName(),
-		metav1.GetOptions{}); err == nil {
-		cmw.Watch(metrics.ConfigMapName(),
-			metrics.ConfigMapWatcher(component, SecretFetcher(ctx), logger),
-			profilingHandler.UpdateFromConfigMap)
-	} else if !apierrors.IsNotFound(err) {
+	if err := watchObservabilityConfig(kubeclient.Get(ctx), cmw, profilingHandler, logger, component); err != nil {
 		logger.With(zap.Error(err)).Fatalf("Error reading ConfigMap %q", metrics.ConfigMapName())
 	}
+}
+
+// WatchObservabilityConfigOrDie establishes a watch of the logging config or
+// dies by calling log.Fatalf. Note, if the config does not exist, it will be
+// defaulted and this method will not die.
+func watchObservabilityConfig(kc kubernetes.Interface, cmw configmap.Watcher, profilingHandler *profiling.Handler, logger *zap.SugaredLogger, component string) error {
+	if _, err := kc.CoreV1().ConfigMaps(system.Namespace()).Get(metrics.ConfigMapName(),
+		metav1.GetOptions{}); err == nil {
+		cmw.Watch(metrics.ConfigMapName(),
+			metrics.ConfigMapWatcher(component, newSecretFetcher(kc), logger),
+			profilingHandler.UpdateFromConfigMap)
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 // SecretFetcher provides a helper function to fetch individual Kubernetes
@@ -348,6 +350,13 @@ func SecretFetcher(ctx context.Context) metrics.SecretFetcher {
 	// to the opencensus agent is too much load, switch to a cached Secret.
 	return func(name string) (*corev1.Secret, error) {
 		return kubeclient.Get(ctx).CoreV1().Secrets(system.Namespace()).Get(name, metav1.GetOptions{})
+	}
+}
+
+// newSecretFetcher creates a secret fetcher which uses the given client to fetch Kubernetes Secrets.
+func newSecretFetcher(kc kubernetes.Interface) metrics.SecretFetcher {
+	return func(name string) (*corev1.Secret, error) {
+		return kc.CoreV1().Secrets(system.Namespace()).Get(name, metav1.GetOptions{})
 	}
 }
 
